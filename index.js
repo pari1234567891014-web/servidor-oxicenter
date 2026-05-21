@@ -25,95 +25,98 @@ async function iniciarServidor() {
     const resultado = await pool.query('SELECT current_setting(\'search_path\') AS sp');
     console.log(`[SISTEMA] Conectado a Supabase. Schema activo: ${resultado.rows[0].sp}`);
     
-app.get('/api/reporte-general', async (req, res) => {
-  try {
-    const { periodo, mes, anio, rangoInicio, rangoFin, id_empleado } = req.query;
-    let fechaFiltro = '';
+    app.get('/api/reporte-general', async (req, res) => {
+      try {
+        const { periodo, mes, anio, rangoInicio, rangoFin, id_empleado } = req.query;
+        let fechaFiltro = '';
+        
+        if (periodo === 'rango' && rangoInicio && rangoFin) {
+          fechaFiltro = `Fecha BETWEEN '${rangoInicio}' AND '${rangoFin}'`;
+        } else if (periodo === 'HOY') {
+          fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
+        } else if (periodo === 'ESTE_MES') {
+          fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE)';
+        } else if (periodo === 'MES_ANTERIOR') {
+          fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL \'1 month\') AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL \'1 month\')';
+        } else if (periodo === 'OTRO_MES' && mes && anio) {
+          fechaFiltro = `EXTRACT(MONTH FROM Fecha) = ${mes} AND EXTRACT(YEAR FROM Fecha) = ${anio}`;
+        } else if (periodo === 'TODO') {
+          fechaFiltro = '1=1';
+        } else {
+          fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
+        }
     
-    if (periodo === 'rango' && rangoInicio && rangoFin) {
-      fechaFiltro = `Fecha BETWEEN '${rangoInicio}' AND '${rangoFin}'`;
-    } else if (periodo === 'HOY') {
-      fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
-    } else if (periodo === 'ESTE_MES') {
-      fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE)';
-    } else if (periodo === 'MES_ANTERIOR') {
-      fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL \'1 month\') AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL \'1 month\')';
-    } else if (periodo === 'OTRO_MES' && mes && anio) {
-      fechaFiltro = `EXTRACT(MONTH FROM Fecha) = ${mes} AND EXTRACT(YEAR FROM Fecha) = ${anio}`;
-    } else if (periodo === 'TODO') {
-      fechaFiltro = '1=1';
-    } else {
-      fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
-    }
-
-    // Filtro por cajero
-    let filtroCajeroVentas = '';
-    let filtroCajeroAlquileres = '';
-    if (id_empleado && id_empleado !== 'TODOS') {
-      filtroCajeroVentas = ` AND ID_Usuario = ${id_empleado}`;
-      filtroCajeroAlquileres = ` AND (ID_Usuario = ${id_empleado} OR ID_Usuario_Recibe = ${id_empleado})`;
-    }
-
-    const ventas = await pool.query(`
-      SELECT v.Fecha as "FECHA", 
-             COALESCE(u.Nombre, '') || ' ' || COALESCE(u.Apellido, '') as "CAJERO",
-             COALESCE(p.Nombre_Producto, 'Botellon') as "PRODUCTO",
-             v.Cantidad as "CANTIDAD",
-             v.Subtotal as "SUBTOTAL"
-      FROM Ventas v
-      LEFT JOIN Usuarios u ON v.ID_Usuario = u.ID_Usuario
-      LEFT JOIN Productos p ON v.ID_Producto = p.ID_Producto
-      WHERE ${fechaFiltro} ${filtroCajeroVentas}
-      ORDER BY v.Fecha DESC
-    `);
-
-    const alquileres = await pool.query(`
-      SELECT a.Fecha as "FECHA",
-             COALESCE(u1.Nombre, '') as "CAJERO_SALIDA",
-             COALESCE(u2.Nombre, '') as "CAJERO_RECEPCION",
-             COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "CLIENTE",
-             p.Nombre_Producto as "NOMBRE_PRODUCTO",
-             a.Precio_Alquiler as "TOTAL_COBRADO"
-      FROM Alquileres a
-      LEFT JOIN Usuarios u1 ON a.ID_Usuario = u1.ID_Usuario
-      LEFT JOIN Usuarios u2 ON a.ID_Usuario_Recibe = u2.ID_Usuario
-      LEFT JOIN Clientes c ON a.ID_Cliente = c.ID_Cliente
-      LEFT JOIN Productos p ON a.ID_Producto = p.ID_Producto
-      WHERE ${fechaFiltro.replace(/Fecha/g, 'a.Fecha')} ${filtroCajeroAlquileres}
-      ORDER BY a.Fecha DESC
-    `);
-
-    let recargasResult = { rows: [] };
-    // Verificamos si existe la tabla Recargas (solo en Oxicenter)
-    try {
-      recargasResult = await pool.query(`
-        SELECT r.Fecha as "FECHA",
-               COALESCE(u.Nombre, '') as "CAJERO",
-               r.Tipo_Cilindro as "BOTELLON",
-               r.Costo_Recarga as "COSTO"
-        FROM Recargas r
-        LEFT JOIN Usuarios u ON r.ID_Usuario = u.ID_Usuario
-        WHERE ${fechaFiltro.replace(/Fecha/g, 'r.Fecha')} ${filtroCajeroVentas.replace(/ID_Usuario/g, 'r.ID_Usuario')}
-        ORDER BY r.Fecha DESC
-      `);
-    } catch (e) {
-      // Ignorar si la tabla no existe
-    }
-
-    res.json({
-      exito: true,
-      ventas: ventas.rows,
-      alquileres: alquileres.rows,
-      recargas: recargasResult.rows,
-      inventario: [] // Por ahora vacio para compatibilidad
+        let filtroCajeroVentas = '';
+        if (id_empleado && id_empleado !== 'TODOS') {
+          filtroCajeroVentas = ` AND v.ID_Usuario = ${id_empleado}`;
+        }
+        
+        let filtroCajeroAlquileres = '';
+        if (id_empleado && id_empleado !== 'TODOS') {
+          filtroCajeroAlquileres = ` AND a.ID_Usuario = ${id_empleado}`;
+        }
+        
+        let filtroCajeroRecargas = '';
+        if (id_empleado && id_empleado !== 'TODOS') {
+          filtroCajeroRecargas = ` AND r.ID_Usuario = ${id_empleado}`;
+        }
+    
+        const ventas = await pool.query(`
+          SELECT v.Fecha_Venta as "FECHA", 
+                 COALESCE(u.Nombre_Completo, '') as "CAJERO",
+                 COALESCE(p.Nombre_Producto, 'Botellon') as "PRODUCTO",
+                 COALESCE(d.Cantidad, 1) as "CANTIDAD",
+                 COALESCE(d.Subtotal, v.Total_Venta) as "SUBTOTAL"
+          FROM Ventas v
+          LEFT JOIN Usuarios u ON v.ID_Usuario = u.ID_Usuario
+          LEFT JOIN Detalle_Ventas d ON v.ID_Venta = d.ID_Venta
+          LEFT JOIN Productos p ON d.ID_Producto = p.ID_Producto
+          WHERE ${fechaFiltro.replace(/Fecha/g, 'v.Fecha_Venta')} ${filtroCajeroVentas}
+          ORDER BY v.Fecha_Venta DESC
+        `);
+    
+        const alquileres = await pool.query(`
+          SELECT a.Fecha_Salida as "FECHA",
+                 COALESCE(u1.Nombre_Completo, '') as "CAJERO_SALIDA",
+                 COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "CLIENTE",
+                 p.Nombre_Producto as "NOMBRE_PRODUCTO",
+                 COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO"
+          FROM Alquileres a
+          LEFT JOIN Usuarios u1 ON a.ID_Usuario = u1.ID_Usuario
+          LEFT JOIN Clientes c ON a.ID_Cliente = c.ID_Cliente
+          LEFT JOIN Productos p ON a.ID_Producto = p.ID_Producto
+          WHERE ${fechaFiltro.replace(/Fecha/g, 'a.Fecha_Salida')} ${filtroCajeroAlquileres}
+          ORDER BY a.Fecha_Salida DESC
+        `);
+    
+        let recargasResult = { rows: [] };
+        try {
+          recargasResult = await pool.query(`
+            SELECT r.Fecha_Recarga as "FECHA",
+                   COALESCE(u.Nombre_Completo, '') as "CAJERO",
+                   r.Nombre_Botellon as "BOTELLON",
+                   r.Costo as "COSTO"
+            FROM Recargas r
+            LEFT JOIN Usuarios u ON r.ID_Usuario = u.ID_Usuario
+            WHERE ${fechaFiltro.replace(/Fecha/g, 'r.Fecha_Recarga')} ${filtroCajeroRecargas}
+            ORDER BY r.Fecha_Recarga DESC
+          `);
+        } catch (e) { }
+    
+        res.json({
+          exito: true,
+          ventas: ventas.rows,
+          alquileres: alquileres.rows,
+          recargas: recargasResult.rows,
+          inventario: [] 
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ exito: false, error: error.message });
+      }
     });
-  } catch (error) {
-    console.error("Error en reporte general:", error);
-    res.status(500).json({ exito: false, error: error.message });
-  }
-});
 
-app.listen(process.env.PORT || 3000, () => console.log(`Servidor ${process.env.EMPRESA_NOMBRE || 'OXIMEDIC'} corriendo en puerto ${process.env.PORT || 3000}...`));
+    app.listen(process.env.PORT || 3000, () => console.log(`Servidor ${process.env.EMPRESA_NOMBRE || 'OXIMEDIC'} corriendo en puerto ${process.env.PORT || 3000}...`));
   } catch (error) { console.error('[ERROR CRITICO] Conexion Supabase: ', error); }
 }
 

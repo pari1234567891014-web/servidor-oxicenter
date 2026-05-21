@@ -94,6 +94,35 @@ app.put('/api/clientes/descuento/:ci', async (req, res) => {
 // =======================================================
 // USUARIOS Y LOGIN
 // =======================================================
+
+// =======================================================
+// CONTROL DE TURNOS
+// =======================================================
+app.get('/api/turnos/estado', async (req, res) => {
+  const { id_usuario } = req.query;
+  try {
+    const result = await pool.query(`SELECT * FROM Turnos WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [id_usuario]);
+    if (result.rows.length > 0) res.json({ exito: true, turno: result.rows[0] });
+    else res.json({ exito: true, turno: null });
+  } catch (err) { res.status(500).json({ exito: false }); }
+});
+
+app.post('/api/turnos/abrir', async (req, res) => {
+  const { id_usuario } = req.body;
+  try {
+    await pool.query(`INSERT INTO Turnos (ID_Usuario, Estado) VALUES ($1, 'ABIERTO')`, [id_usuario]);
+    res.json({ exito: true });
+  } catch (err) { res.status(500).json({ exito: false }); }
+});
+
+app.post('/api/turnos/cerrar', async (req, res) => {
+  const { id_usuario } = req.body;
+  try {
+    await pool.query(`UPDATE Turnos SET Estado = 'CERRADO', Fecha_Cierre = CURRENT_TIMESTAMP WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [id_usuario]);
+    res.json({ exito: true });
+  } catch (err) { res.status(500).json({ exito: false }); }
+});
+
 app.post('/api/login', async (req, res) => {
   const { usuario, contrasena } = req.body;
   try {
@@ -308,7 +337,7 @@ app.post('/api/alquileres/devolver', async (req, res) => {
   try {
     await client.query(`SET search_path TO ${SCHEMA}`);
     await client.query('BEGIN');
-    await client.query(`UPDATE Alquileres SET Estado_Alquiler = 'DEVUELTO', Fecha_Devolucion_Real = CURRENT_TIMESTAMP, ID_Usuario = $1 WHERE ID_Alquiler = $2`, [id_usuario, id_alquiler]);
+    await client.query(`UPDATE Alquileres SET Estado_Alquiler = 'DEVUELTO', Fecha_Devolucion_Real = CURRENT_TIMESTAMP, ID_Usuario_Recibe = $1 WHERE ID_Alquiler = $2`, [id_usuario, id_alquiler]);
     await client.query(`UPDATE Productos SET Stock_Disponible = Stock_Disponible + 1 WHERE ID_Producto = $1`, [id_producto]);
     await client.query('COMMIT');
     res.json({ exito: true });
@@ -353,61 +382,26 @@ app.get('/api/reporte-alquileres', async (req, res) => {
 app.get('/api/dashboard', async (req, res) => {
   const { idUsuario } = req.query;
   try {
-    const ventas = await pool.query(`SELECT COALESCE(SUM(Total_Venta), 0) AS total FROM Ventas WHERE Fecha_Venta::date = CURRENT_DATE AND ID_Usuario = $1`, [idUsuario]);
-    const recargas = await pool.query(`SELECT COALESCE(SUM(Costo), 0) AS total FROM Recargas WHERE Fecha_Recarga::date = CURRENT_DATE AND ID_Usuario = $1`, [idUsuario]);
-    const alquileres = await pool.query(`SELECT COALESCE(SUM(GREATEST(Fecha_Devolucion_Real::date - Fecha_Salida::date, 1) * Costo_Por_Dia), 0) AS total FROM Alquileres WHERE Estado_Alquiler = 'DEVUELTO' AND Fecha_Devolucion_Real::date = CURRENT_DATE AND ID_Usuario = $1`, [idUsuario]);
-
-    const totalCajaHoy = parseFloat(ventas.rows[0].total) + parseFloat(recargas.rows[0].total) + parseFloat(alquileres.rows[0].total);
+    // 1. Verificar si hay un turno abierto
+    const turnoRes = await pool.query(`SELECT ID_Turno, Fecha_Apertura FROM Turnos WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [idUsuario]);
+    
     const cilindros = await pool.query(`SELECT COUNT(*) AS "EN_CALLE" FROM Alquileres WHERE Estado_Alquiler = 'PRESTADO'`);
     const stock = await pool.query(`SELECT COUNT(*) AS "ALERTAS" FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO'`);
 
-    res.json({ exito: true, ingresosHoy: totalCajaHoy, cilindrosEnCalle: cilindros.rows[0].EN_CALLE, alertasStock: stock.rows[0].ALERTAS });
-  } catch (error) { res.status(500).json({ exito: false }); }
-});
-
-app.get('/api/reporte-general', async (req, res) => {
-  const { periodo, mes, anio, fechaExacta, id_empleado } = req.query; 
-  try {
-    let filtroVentas = "WHERE 1=1";
-    let filtroAlquileres = "WHERE a.Estado_Alquiler = 'DEVUELTO'";
-    let filtroRecargas = "WHERE 1=1";
-
-    if (periodo === 'HOY') {
-      filtroVentas += " AND v.Fecha_Venta::date = CURRENT_DATE";
-      filtroAlquileres += " AND a.Fecha_Devolucion_Real::date = CURRENT_DATE";
-      filtroRecargas += " AND r.Fecha_Recarga::date = CURRENT_DATE";
-    } else if (periodo === 'DIA_ESPECIFICO' && fechaExacta) {
-      filtroVentas += ` AND v.Fecha_Venta::date = '${fechaExacta}'`;
-      filtroAlquileres += ` AND a.Fecha_Devolucion_Real::date = '${fechaExacta}'`;
-      filtroRecargas += ` AND r.Fecha_Recarga::date = '${fechaExacta}'`;
-    } else if (periodo === 'MES_ACTUAL') {
-      filtroVentas += " AND EXTRACT(MONTH FROM v.Fecha_Venta) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM v.Fecha_Venta) = EXTRACT(YEAR FROM CURRENT_DATE)";
-      filtroAlquileres += " AND EXTRACT(MONTH FROM a.Fecha_Devolucion_Real) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM a.Fecha_Devolucion_Real) = EXTRACT(YEAR FROM CURRENT_DATE)";
-      filtroRecargas += " AND EXTRACT(MONTH FROM r.Fecha_Recarga) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM r.Fecha_Recarga) = EXTRACT(YEAR FROM CURRENT_DATE)";
-    } else if (periodo === 'MES_ESPECIFICO' && mes && anio) {
-      filtroVentas += ` AND EXTRACT(MONTH FROM v.Fecha_Venta) = ${parseInt(mes)} AND EXTRACT(YEAR FROM v.Fecha_Venta) = ${parseInt(anio)}`;
-      filtroAlquileres += ` AND EXTRACT(MONTH FROM a.Fecha_Devolucion_Real) = ${parseInt(mes)} AND EXTRACT(YEAR FROM a.Fecha_Devolucion_Real) = ${parseInt(anio)}`;
-      filtroRecargas += ` AND EXTRACT(MONTH FROM r.Fecha_Recarga) = ${parseInt(mes)} AND EXTRACT(YEAR FROM r.Fecha_Recarga) = ${parseInt(anio)}`;
-    } else if (periodo === 'ANIO_ESPECIFICO' && anio) {
-      filtroVentas += ` AND EXTRACT(YEAR FROM v.Fecha_Venta) = ${parseInt(anio)}`;
-      filtroAlquileres += ` AND EXTRACT(YEAR FROM a.Fecha_Devolucion_Real) = ${parseInt(anio)}`;
-      filtroRecargas += ` AND EXTRACT(YEAR FROM r.Fecha_Recarga) = ${parseInt(anio)}`;
-    }
-    // HISTORICO: no agrega filtros de fecha
-
-    if (id_empleado && id_empleado !== 'TODOS') {
-      filtroVentas += ` AND v.ID_Usuario = ${parseInt(id_empleado)}`;
-      filtroAlquileres += ` AND a.ID_Usuario = ${parseInt(id_empleado)}`;
-      filtroRecargas += ` AND r.ID_Usuario = ${parseInt(id_empleado)}`;
+    if (turnoRes.rows.length === 0) {
+      return res.json({ exito: true, ingresosHoy: 0, cilindrosEnCalle: cilindros.rows[0].EN_CALLE, alertasStock: stock.rows[0].ALERTAS, turnoAbierto: false });
     }
 
-    const inventario = await pool.query(`SELECT Nombre_Producto AS "NOMBRE_PRODUCTO", Categoria AS "CATEGORIA", Stock_Disponible AS "STOCK_DISPONIBLE", Precio AS "PRECIO" FROM Productos WHERE Estado = 'ACTIVO' ORDER BY Categoria, Nombre_Producto`);
-    const ventas = await pool.query(`SELECT v.nro_servicio AS "NRO_SERVICIO", v.Fecha_Venta AS "FECHA_VENTA", v.Total_Venta AS "TOTAL_VENTA", u.Nombre_Completo AS "CAJERO", v.cliente_nombre AS "CLIENTE", STRING_AGG(d.Cantidad || 'x ' || p.Nombre_Producto, ' + ' ORDER BY p.Nombre_Producto) AS "DETALLE_COMPLETO" FROM Ventas v JOIN Detalle_Ventas d ON v.ID_Venta = d.ID_Venta JOIN Productos p ON d.ID_Producto = p.ID_Producto JOIN Usuarios u ON v.ID_Usuario = u.ID_Usuario ${filtroVentas} GROUP BY v.ID_Venta, v.Fecha_Venta, v.Total_Venta, u.Nombre_Completo, v.nro_servicio, v.cliente_nombre ORDER BY v.ID_Venta DESC`);
-    const alquileres = await pool.query(`SELECT a.nro_servicio AS "NRO_SERVICIO", c.Nombre || ' ' || c.Apellido AS "CLIENTE", c.Carnet_Identidad AS "CI", p.Nombre_Producto AS "NOMBRE_PRODUCTO", a.Fecha_Salida AS "FECHA_SALIDA", a.Fecha_Devolucion_Real AS "FECHA_DEVOLUCION_REAL", a.Monto_Garantia AS "GARANTIA", a.Costo_Por_Dia AS "COSTO_DIA", u.Nombre_Completo AS "CAJERO", GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) AS "DIAS_COBRADOS", (GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia) AS "TOTAL_COBRADO" FROM Alquileres a JOIN Clientes c ON a.ID_Cliente = c.ID_Cliente JOIN Productos p ON a.ID_Producto = p.ID_Producto JOIN Usuarios u ON a.ID_Usuario = u.ID_Usuario ${filtroAlquileres} ORDER BY a.Fecha_Devolucion_Real DESC`);
-    const recargas = await pool.query(`SELECT r.Nro_Servicio AS "NRO_SERVICIO", r.Nombre_Botellon AS "BOTELLON", r.Categoria AS "CATEGORIA", r.Costo AS "COSTO", r.Fecha_Recarga AS "FECHA", u.Nombre_Completo AS "CAJERO", r.Cliente_Nombre AS "CLIENTE", r.Cliente_CI AS "CI" FROM Recargas r JOIN Usuarios u ON r.ID_Usuario = u.ID_Usuario ${filtroRecargas} ORDER BY r.ID_Recarga DESC`);
+    const fechaApertura = turnoRes.rows[0].fecha_apertura;
 
-    res.json({ exito: true, inventario: inventario.rows, ventas: ventas.rows, alquileres: alquileres.rows, recargas: recargas.rows });
-  } catch (error) { res.status(500).json({ exito: false }); }
+    const ventas = await pool.query(`SELECT COALESCE(SUM(Total_Venta), 0) AS total FROM Ventas WHERE ID_Usuario = $1 AND Fecha_Venta >= $2`, [idUsuario, fechaApertura]);
+    const recargas = await pool.query(`SELECT COALESCE(SUM(Costo), 0) AS total FROM Recargas WHERE ID_Usuario = $1 AND Fecha_Recarga >= $2`, [idUsuario, fechaApertura]);
+    const alquileres = await pool.query(`SELECT COALESCE(SUM(GREATEST(Fecha_Devolucion_Real::date - Fecha_Salida::date, 1) * Costo_Por_Dia), 0) AS total FROM Alquileres WHERE ID_Usuario_Recibe = $1 AND Estado_Alquiler = 'DEVUELTO' AND Fecha_Devolucion_Real >= $2`, [idUsuario, fechaApertura]);
+
+    const totalCajaHoy = parseFloat(ventas.rows[0].total) + parseFloat(recargas.rows[0].total) + parseFloat(alquileres.rows[0].total);
+    
+    res.json({ exito: true, ingresosHoy: totalCajaHoy, cilindrosEnCalle: cilindros.rows[0].EN_CALLE, alertasStock: stock.rows[0].ALERTAS, turnoAbierto: true, fechaApertura });
+  } catch (error) { console.error(error); res.status(500).json({ exito: false }); }
 });
 
 // =======================================================

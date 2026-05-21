@@ -410,4 +410,78 @@ app.get('/api/reporte-general', async (req, res) => {
   } catch (error) { res.status(500).json({ exito: false }); }
 });
 
+// =======================================================
+// MIGRACION MASIVA DE DATOS (IMPORTACION)
+// =======================================================
+app.post('/api/migrar-clientes', async (req, res) => {
+  const { clientes } = req.body;
+  if (!clientes || !Array.isArray(clientes)) return res.status(400).json({ exito: false, error: "Formato inválido" });
+  
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let insertados = 0;
+    for (const c of clientes) {
+      const ci = c.ci ? String(c.ci).trim() : null;
+      if (!ci) continue; // Saltar si no hay CI
+      
+      const nombre = c.nombre || '';
+      const apellido = c.apellido || '';
+      const telefono = c.telefono || '';
+      const direccion = c.direccion || '';
+      const tipo = c.tipo_cliente || 'GENERAL';
+      
+      // Upsert (Insertar o actualizar si ya existe)
+      await client.query(`
+        INSERT INTO Clientes (Carnet_Identidad, Nombre, Apellido, Telefono, Direccion, Tipo_Cliente)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (Carnet_Identidad) DO UPDATE 
+        SET Nombre = EXCLUDED.Nombre, Apellido = EXCLUDED.Apellido, Telefono = EXCLUDED.Telefono, Direccion = EXCLUDED.Direccion, Tipo_Cliente = EXCLUDED.Tipo_Cliente
+      `, [ci, nombre, apellido, telefono, direccion, tipo]);
+      insertados++;
+    }
+    await client.query('COMMIT');
+    res.json({ exito: true, insertados });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ exito: false, error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/migrar-productos', async (req, res) => {
+  const { productos } = req.body;
+  if (!productos || !Array.isArray(productos)) return res.status(400).json({ exito: false, error: "Formato inválido" });
+  
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let insertados = 0;
+    for (const p of productos) {
+      const nombre = p.nombre ? String(p.nombre).trim() : null;
+      if (!nombre) continue;
+      
+      const categoria = p.categoria || 'RECARGA';
+      const precio = parseFloat(p.precio) || 0;
+      const stock = parseInt(p.stock) || 0;
+      const es_alquiler = p.es_alquiler === 'true' || p.es_alquiler === true;
+      
+      // Para productos no hay unique constraint en nombre en el schema actual, solo insertamos
+      await client.query(`
+        INSERT INTO Productos (Nombre_Producto, Categoria, Precio, Stock_Disponible, es_alquiler, Estado)
+        VALUES ($1, $2, $3, $4, $5, 'ACTIVO')
+      `, [nombre, categoria, precio, stock, es_alquiler]);
+      insertados++;
+    }
+    await client.query('COMMIT');
+    res.json({ exito: true, insertados });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ exito: false, error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 iniciarServidor();

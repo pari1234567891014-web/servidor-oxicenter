@@ -506,11 +506,20 @@ app.get('/api/dashboard', async (req, res) => {
     const turnoRes = await pool.query(`SELECT ID_Turno, Fecha_Apertura FROM Turnos WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [idUsuario]);
     
     const cilindros = await pool.query(`SELECT COUNT(*) AS "EN_CALLE" FROM Alquileres WHERE Estado_Alquiler = 'PRESTADO'`);
-    const stockVentas = await pool.query(`SELECT COUNT(*) AS "ALERTAS" FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO' AND (es_alquiler = FALSE OR es_alquiler IS NULL)`);
-    const stockAlquileres = await pool.query(`SELECT COUNT(*) AS "ALERTAS" FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO' AND es_alquiler = TRUE`);
+    const stockVentas = await pool.query(`SELECT Nombre_Producto, Stock_Disponible FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO' AND (es_alquiler = FALSE OR es_alquiler IS NULL)`);
+    const stockAlquileres = await pool.query(`SELECT Nombre_Producto, Stock_Disponible FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO' AND es_alquiler = TRUE`);
 
     if (turnoRes.rows.length === 0) {
-      return res.json({ exito: true, ingresosHoy: 0, cilindrosEnCalle: cilindros.rows[0].EN_CALLE, alertasStockVentas: stockVentas.rows[0].ALERTAS, alertasStockAlquileres: stockAlquileres.rows[0].ALERTAS, turnoAbierto: false });
+      return res.json({ 
+        exito: true, 
+        ingresosHoy: 0, 
+        cilindrosEnCalle: cilindros.rows[0].EN_CALLE, 
+        alertasStockVentas: stockVentas.rows.length, 
+        alertasStockAlquileres: stockAlquileres.rows.length, 
+        listaStockVentas: stockVentas.rows,
+        listaStockAlquileres: stockAlquileres.rows,
+        turnoAbierto: false 
+      });
     }
 
     const fechaApertura = turnoRes.rows[0].fecha_apertura;
@@ -521,7 +530,17 @@ app.get('/api/dashboard', async (req, res) => {
 
     const totalCajaHoy = parseFloat(ventas.rows[0].total) + parseFloat(recargas.rows[0].total) + parseFloat(alquileres.rows[0].total);
     
-    res.json({ exito: true, ingresosHoy: totalCajaHoy, cilindrosEnCalle: cilindros.rows[0].EN_CALLE, alertasStockVentas: stockVentas.rows[0].ALERTAS, alertasStockAlquileres: stockAlquileres.rows[0].ALERTAS, turnoAbierto: true, fechaApertura });
+    res.json({ 
+      exito: true, 
+      ingresosHoy: totalCajaHoy, 
+      cilindrosEnCalle: cilindros.rows[0].EN_CALLE, 
+      alertasStockVentas: stockVentas.rows.length, 
+      alertasStockAlquileres: stockAlquileres.rows.length, 
+      listaStockVentas: stockVentas.rows,
+      listaStockAlquileres: stockAlquileres.rows,
+      turnoAbierto: true, 
+      fechaApertura 
+    });
   } catch (error) { console.error(error); res.status(500).json({ exito: false }); }
 });
 

@@ -312,14 +312,14 @@ app.post('/api/usuarios/recuperar', async (req, res) => {
 // =======================================================
 app.get('/api/productos', async (req, res) => {
   try {
-    const resultado = await pool.query(`SELECT ID_Producto AS "ID_PRODUCTO", Nombre_Producto AS "NOMBRE_PRODUCTO", Categoria AS "CATEGORIA", Stock_Disponible AS "STOCK_DISPONIBLE", Precio AS "PRECIO", Estado AS "ESTADO", es_alquiler FROM Productos WHERE Estado = 'ACTIVO' AND (es_alquiler = FALSE OR es_alquiler IS NULL)`);
+    const resultado = await pool.query(`SELECT ID_Producto AS "ID_PRODUCTO", Nombre_Producto AS "NOMBRE_PRODUCTO", Categoria AS "CATEGORIA", Stock_Disponible AS "STOCK_DISPONIBLE", Precio AS "PRECIO", Estado AS "ESTADO", es_alquiler FROM Productos WHERE Estado = 'ACTIVO' AND Stock_Disponible > 0 AND (es_alquiler = FALSE OR es_alquiler IS NULL)`);
     res.json({ exito: true, productos: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });
 
 app.get('/api/productos-alquiler', async (req, res) => {
   try {
-    const resultado = await pool.query(`SELECT ID_Producto AS "ID_PRODUCTO", Nombre_Producto AS "NOMBRE_PRODUCTO", Categoria AS "CATEGORIA", Stock_Disponible AS "STOCK_DISPONIBLE", Precio AS "PRECIO", Estado AS "ESTADO" FROM Productos WHERE Estado = 'ACTIVO' AND es_alquiler = TRUE`);
+    const resultado = await pool.query(`SELECT ID_Producto AS "ID_PRODUCTO", Nombre_Producto AS "NOMBRE_PRODUCTO", Categoria AS "CATEGORIA", Stock_Disponible AS "STOCK_DISPONIBLE", Precio AS "PRECIO", Estado AS "ESTADO" FROM Productos WHERE Estado = 'ACTIVO' AND Stock_Disponible > 0 AND es_alquiler = TRUE`);
     res.json({ exito: true, productos: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });

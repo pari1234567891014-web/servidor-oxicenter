@@ -83,7 +83,8 @@ async function iniciarServidor() {
                  c.Carnet_Identidad as "CI_CLIENTE",
                  COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "NOMBRE_CLIENTE",
                  p.Nombre_Producto as "NOMBRE_PRODUCTO",
-                 COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO"
+                 COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO",
+                 a.Monto_Garantia as "GARANTIA"
           FROM Alquileres a
           LEFT JOIN Usuarios u1 ON a.ID_Usuario = u1.ID_Usuario
           LEFT JOIN Usuarios u2 ON a.ID_Usuario_Recibe = u2.ID_Usuario
@@ -103,7 +104,8 @@ async function iniciarServidor() {
                  c.Carnet_Identidad as "CI_CLIENTE",
                  COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "NOMBRE_CLIENTE",
                  p.Nombre_Producto as "NOMBRE_PRODUCTO",
-                 COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO"
+                 COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO",
+                 a.Monto_Garantia as "GARANTIA"
           FROM Alquileres a
           LEFT JOIN Usuarios u1 ON a.ID_Usuario = u1.ID_Usuario
           LEFT JOIN Usuarios u2 ON a.ID_Usuario_Recibe = u2.ID_Usuario

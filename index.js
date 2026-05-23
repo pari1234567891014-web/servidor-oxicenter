@@ -193,7 +193,7 @@ app.get('/api/clientes/buscar/:ci', async (req, res) => {
 // Busca el ultimo servicio para ayudar al empleado con los precios
 app.get('/api/clientes/ultimo-servicio/:ci', async (req, res) => {
   try {
-    const recarga = await pool.query(`SELECT Categoria AS "categoria", Costo::text AS "costo", Fecha_Recarga AS "fecha" FROM Recargas WHERE Cliente_CI = $1 ORDER BY Fecha_Recarga DESC LIMIT 1`, [req.params.ci]);
+    const recarga = await pool.query(`SELECT Categoria AS "categoria", Costo::text AS "costo", Fecha_Recarga AS "fecha", Es_Domicilio AS "es_domicilio", Costo_Transporte::text AS "costo_transporte" FROM Recargas WHERE Cliente_CI = $1 ORDER BY Fecha_Recarga DESC LIMIT 1`, [req.params.ci]);
     const cliente = await pool.query(`SELECT Tiene_Descuento AS "tiene_descuento", Monto_Descuento AS "monto_descuento" FROM Clientes WHERE Carnet_Identidad = $1`, [req.params.ci]);
     res.json({ 
       exito: true, 
@@ -205,7 +205,7 @@ app.get('/api/clientes/ultimo-servicio/:ci', async (req, res) => {
 
 app.get('/api/historial-domicilio/:ci', async (req, res) => {
   try {
-    const resultado = await pool.query(`SELECT Fecha_Recarga as "fecha", Es_Domicilio as "es_domicilio", Costo_Transporte as "costo_transporte" FROM Recargas WHERE Cliente_CI = $1 AND Es_Domicilio = true ORDER BY Fecha_Recarga DESC`, [req.params.ci]);
+    const resultado = await pool.query(`SELECT r.Fecha_Recarga AS "FECHA", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", r.Costo_Transporte AS "COSTO_TRANSPORTE" FROM Recargas r LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad WHERE r.Cliente_CI = $1 AND r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC`, [req.params.ci]);
     res.json({ exito: true, historial: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });

@@ -127,9 +127,13 @@ async function iniciarServidor() {
             SELECT r.Fecha_Recarga as "FECHA",
                    COALESCE(u.Nombre_Completo, '') as "CAJERO",
                    r.Nombre_Botellon as "BOTELLON",
-                   r.Costo as "COSTO"
+                   r.Costo as "COSTO",
+                   r.Es_Domicilio as "ES_DOMICILIO",
+                   r.Costo_Transporte as "COSTO_TRANSPORTE",
+                   c.Direccion_Domicilio as "DIRECCION_DOMICILIO"
             FROM Recargas r
             LEFT JOIN Usuarios u ON r.ID_Usuario = u.ID_Usuario
+            LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad
             WHERE ${fechaFiltro.replace(/Fecha/g, 'r.Fecha_Recarga')} ${filtroCajeroRecargas}
             ORDER BY r.Fecha_Recarga DESC
           `);
@@ -180,7 +184,7 @@ app.get('/api/clientes/filtrados', async (req, res) => {
 
 app.get('/api/clientes/buscar/:ci', async (req, res) => {
   try {
-    const resultado = await pool.query(`SELECT Carnet_Identidad, Nombre, Apellido, Telefono, Direccion, Tipo_Cliente FROM Clientes WHERE Carnet_Identidad = $1`, [req.params.ci]);
+    const resultado = await pool.query(`SELECT Carnet_Identidad, Nombre, Apellido, Telefono, Direccion, Direccion_Domicilio, Tipo_Cliente FROM Clientes WHERE Carnet_Identidad = $1`, [req.params.ci]);
     if (resultado.rows.length > 0) res.json({ exito: true, cliente: resultado.rows[0] });
     else res.json({ exito: false, mensaje: 'Cliente no encontrado' });
   } catch (error) { res.status(500).json({ exito: false }); }
@@ -196,6 +200,13 @@ app.get('/api/clientes/ultimo-servicio/:ci', async (req, res) => {
       ultimaRecarga: recarga.rows.length > 0 ? recarga.rows[0] : null,
       preferenciaCliente: cliente.rows.length > 0 ? cliente.rows[0] : null
     });
+  } catch (error) { res.status(500).json({ exito: false }); }
+});
+
+app.get('/api/historial-domicilio/:ci', async (req, res) => {
+  try {
+    const resultado = await pool.query(`SELECT Fecha_Recarga as "fecha", Es_Domicilio as "es_domicilio", Costo_Transporte as "costo_transporte" FROM Recargas WHERE Cliente_CI = $1 AND Es_Domicilio = true ORDER BY Fecha_Recarga DESC`, [req.params.ci]);
+    res.json({ exito: true, historial: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });
 
@@ -366,7 +377,7 @@ app.delete('/api/productos/:id', async (req, res) => {
 // TRANSACCIONES: RECARGAS, VENTAS, ALQUILERES
 // =======================================================
 app.post('/api/recargas', async (req, res) => {
-  const { id_usuario, nombre_botellon, categoria, costo, cliente_ci, cliente_nombre, cliente_telefono, cliente_direccion } = req.body;
+  const { id_usuario, nombre_botellon, categoria, costo, cliente_ci, cliente_nombre, cliente_telefono, cliente_direccion, es_domicilio, costo_transporte, direccion_domicilio } = req.body;
   const client = await pool.connect();
   try {
     await client.query(`SET search_path TO ${SCHEMA}`);
@@ -377,15 +388,22 @@ app.post('/api/recargas', async (req, res) => {
     if (cliente_ci && cliente_ci.trim() !== '') {
       const checkCl = await client.query('SELECT ID_Cliente FROM Clientes WHERE Carnet_Identidad = $1', [cliente_ci]);
       if (checkCl.rows.length === 0) {
-        await client.query(`INSERT INTO Clientes (Carnet_Identidad, Nombre, Telefono, Direccion, Tipo_Cliente) VALUES ($1, $2, $3, $4, 'RECARGA')`, [cliente_ci, cliente_nombre, cliente_telefono || '', cliente_direccion || '']);
+        await client.query(`INSERT INTO Clientes (Carnet_Identidad, Nombre, Telefono, Direccion, Direccion_Domicilio, Tipo_Cliente) VALUES ($1, $2, $3, $4, $5, 'RECARGA')`, [cliente_ci, cliente_nombre, cliente_telefono || '', cliente_direccion || '', direccion_domicilio || null]);
       } else {
-        await client.query(`UPDATE Clientes SET Nombre = $1, Tipo_Cliente = 'RECARGA' WHERE Carnet_Identidad = $2`, [cliente_nombre, cliente_ci]);
+        let updateQuery = `UPDATE Clientes SET Nombre = $1, Tipo_Cliente = 'RECARGA'`;
+        let queryParams = [cliente_nombre, cliente_ci];
+        if (es_domicilio) {
+          updateQuery += `, Direccion_Domicilio = $3`;
+          queryParams = [cliente_nombre, cliente_ci, direccion_domicilio];
+        }
+        updateQuery += ` WHERE Carnet_Identidad = $2`;
+        await client.query(updateQuery, queryParams);
       }
     }
 
     await client.query(
-      `INSERT INTO Recargas (ID_Usuario, Nombre_Botellon, Categoria, Costo, Nro_Servicio, Cliente_CI, Cliente_Nombre, Cliente_Telefono, Cliente_Direccion) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id_usuario, nombre_botellon, categoria, costo, nroServicio, cliente_ci || 'Anonimo', cliente_nombre || 'Cliente Ocasional', cliente_telefono || '', cliente_direccion || '']
+      `INSERT INTO Recargas (ID_Usuario, Nombre_Botellon, Categoria, Costo, Nro_Servicio, Cliente_CI, Cliente_Nombre, Cliente_Telefono, Cliente_Direccion, Es_Domicilio, Costo_Transporte) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [id_usuario, nombre_botellon, categoria, costo, nroServicio, cliente_ci || 'Anonimo', cliente_nombre || 'Cliente Ocasional', cliente_telefono || '', cliente_direccion || '', es_domicilio || false, costo_transporte || 0.0]
     );
 
     await client.query('COMMIT');
@@ -530,7 +548,7 @@ app.get('/api/dashboard', async (req, res) => {
     const fechaApertura = turnoRes.rows[0].fecha_apertura;
 
     const ventas = await pool.query(`SELECT COALESCE(SUM(Total_Venta), 0) AS total FROM Ventas WHERE ID_Usuario = $1 AND Fecha_Venta >= $2`, [idUsuario, fechaApertura]);
-    const recargas = await pool.query(`SELECT COALESCE(SUM(Costo), 0) AS total FROM Recargas WHERE ID_Usuario = $1 AND Fecha_Recarga >= $2`, [idUsuario, fechaApertura]);
+    const recargas = await pool.query(`SELECT COALESCE(SUM(Costo + Costo_Transporte), 0) AS total FROM Recargas WHERE ID_Usuario = $1 AND Fecha_Recarga >= $2`, [idUsuario, fechaApertura]);
     const alquileres = await pool.query(`SELECT COALESCE(SUM(GREATEST(Fecha_Devolucion_Real::date - Fecha_Salida::date, 1) * Costo_Por_Dia), 0) AS total FROM Alquileres WHERE ID_Usuario_Recibe = $1 AND Estado_Alquiler = 'DEVUELTO' AND Fecha_Devolucion_Real >= $2`, [idUsuario, fechaApertura]);
 
     const totalCajaHoy = parseFloat(ventas.rows[0].total) + parseFloat(recargas.rows[0].total) + parseFloat(alquileres.rows[0].total);

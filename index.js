@@ -56,6 +56,11 @@ async function iniciarServidor() {
           filtroCajeroAlquileres = ` AND (a.ID_Usuario = ${id_empleado} OR a.ID_Usuario_Recibe = ${id_empleado}) `;
         }
         
+        let filtroCajeroAlquileresRecibe = '';
+        if (id_empleado && id_empleado !== 'TODOS') {
+          filtroCajeroAlquileresRecibe = ` AND a.ID_Usuario_Recibe = ${id_empleado}`;
+        }
+        
         let filtroCajeroRecargas = '';
         if (id_empleado && id_empleado !== 'TODOS') {
           filtroCajeroRecargas = ` AND r.ID_Usuario = ${id_empleado}`;
@@ -112,7 +117,7 @@ async function iniciarServidor() {
           LEFT JOIN Productos p ON a.ID_Producto = p.ID_Producto
           WHERE ${fechaFiltro.replace(/Fecha/g, 'a.Fecha_Devolucion_Real')} 
             AND a.Estado_Alquiler = 'DEVUELTO'
-            ${filtroCajeroAlquileres}
+            ${filtroCajeroAlquileresRecibe}
           ORDER BY a.Fecha_Devolucion_Real DESC
         `);
 

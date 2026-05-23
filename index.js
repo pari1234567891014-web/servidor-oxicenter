@@ -203,12 +203,19 @@ app.get('/api/clientes/ultimo-servicio/:ci', async (req, res) => {
   } catch (error) { res.status(500).json({ exito: false }); }
 });
 
-app.get('/api/historial-domicilio/:ci', async (req, res) => {
-  try {
-    const resultado = await pool.query(`SELECT r.Fecha_Recarga AS "FECHA", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", r.Costo_Transporte AS "COSTO_TRANSPORTE" FROM Recargas r LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad WHERE r.Cliente_CI = $1 AND r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC`, [req.params.ci]);
-    res.json({ exito: true, historial: resultado.rows });
-  } catch (error) { res.status(500).json({ exito: false }); }
-});
+  app.get('/api/historial-domicilio/:ci', async (req, res) => {
+    try {
+      const resultado = await pool.query(`SELECT r.Cliente_CI AS "CI", c.Nombre AS "NOMBRE", r.Fecha_Recarga AS "FECHA", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", r.Costo_Transporte AS "COSTO_TRANSPORTE" FROM Recargas r LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad WHERE r.Cliente_CI = $1 AND r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC`, [req.params.ci]);
+      res.json({ exito: true, historial: resultado.rows });
+    } catch (error) { res.status(500).json({ exito: false }); }
+  });
+
+  app.get('/api/historial-domicilios-recientes', async (req, res) => {
+    try {
+      const resultado = await pool.query(`SELECT r.Cliente_CI AS "CI", c.Nombre AS "NOMBRE", r.Fecha_Recarga AS "FECHA", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", r.Costo_Transporte AS "COSTO_TRANSPORTE" FROM Recargas r LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad WHERE r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC LIMIT 50`);
+      res.json({ exito: true, historial: resultado.rows });
+    } catch (error) { res.status(500).json({ exito: false }); }
+  });
 
 app.put('/api/clientes/actualizar/:ci', async (req, res) => {
   const { nombre, apellido, telefono, direccion } = req.body;

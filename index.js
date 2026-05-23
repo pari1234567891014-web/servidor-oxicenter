@@ -177,7 +177,7 @@ app.get('/api/clientes-reporte', async (req, res) => {
 app.get('/api/clientes/filtrados', async (req, res) => {
   const { tipo } = req.query;
   try {
-    const resultado = await pool.query(`SELECT Carnet_Identidad AS "CI", Nombre AS "NOMBRE", Apellido AS "APELLIDO", Telefono AS "TELEFONO", Direccion AS "DIRECCION", Tipo_Cliente AS "TIPO_CLIENTE", Tiene_Descuento AS "TIENE_DESCUENTO", Monto_Descuento AS "MONTO_DESCUENTO" FROM Clientes WHERE Tipo_Cliente = $1 ORDER BY Nombre`, [tipo]);
+    const resultado = await pool.query(`SELECT c.Carnet_Identidad AS "CI", c.Nombre AS "NOMBRE", c.Apellido AS "APELLIDO", c.Telefono AS "TELEFONO", c.Direccion AS "DIRECCION", c.Tipo_Cliente AS "TIPO_CLIENTE", c.Tiene_Descuento AS "TIENE_DESCUENTO", c.Monto_Descuento AS "MONTO_DESCUENTO", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", (SELECT Costo_Transporte FROM Recargas r WHERE r.Cliente_CI = c.Carnet_Identidad AND r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC LIMIT 1) AS "ULTIMO_TRANSPORTE" FROM Clientes c WHERE c.Tipo_Cliente = $1 ORDER BY c.Nombre`, [tipo]);
     res.json({ exito: true, clientes: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });
